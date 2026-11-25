@@ -1,0 +1,456 @@
+/**
+ * @module objects/RayObject
+ */
+
+import {
+  TYPE_3TUPLE_SELECTOR,
+  TYPE_DROPDOWN_SELECTOR,
+  TYPE_MATERIAL_SELECTOR,
+  TYPE_PROGRAM_SELECTOR,
+  TYPE_XTUPLE_SELECTOR,
+} from "../controls/sceneEditor";
+import {
+  mat3Transpose,
+  mat4Identity,
+  mat4Inverse,
+  mat4ToMat3,
+  transformPoint,
+} from "../util/transformations";
+import SceneObject from "./SceneObject";
+
+/**
+ * Raytracing Scene object class
+ *
+ * @class
+ * @alias module:objects/RayObject
+ */
+export default class RayObject extends SceneObject {
+  static OBJECT_TYPE_SPHERE = 1;
+  static OBJECT_TYPE_CUBE = 2;
+  static OBJECT_TYPE_CONE = 3;
+  static OBJECT_TYPE_TORUS = 4;
+  static OBJECT_TYPE_CYLINDER = 5;
+  static OBJECT_TYPE_PLANE = 6;
+  static OBJECT_TYPE_RECT = 7;
+  static OBJECT_TYPE_INVERTED_SPHERE = -1;
+  static OBJECT_TYPE_INVERTED_CUBE = -2;
+  static OBJECT_TYPE_INVERTED_CONE = -3;
+  static OBJECT_TYPE_INVERTED_TORUS = -4;
+  static OBJECT_TYPE_INVERTED_CYLINDER = -5;
+  static OBJECT_TYPE_INVERTED_PLANE = -6;
+  static OBJECT_TYPE_INVERTED_RECT = -7;
+
+  static OBJECT_BYTE_SIZE = 80; // 16 + 16 + 16 + 16+ 16
+  // 64 + 48 ( mat3 padded to vec4 for some reason...)
+  // can bump max objects a bit if we optimize this.
+  static OBJECT_TRANSFORM_BYTE_SIZE = 112;
+
+  static EDITOR_PROPERTIES = [
+    { name: "position", type: TYPE_3TUPLE_SELECTOR },
+    { name: "rotation", type: TYPE_3TUPLE_SELECTOR },
+    { name: "scale", type: TYPE_3TUPLE_SELECTOR },
+    { name: "center", type: TYPE_3TUPLE_SELECTOR },
+    {
+      name: "type",
+      type: TYPE_DROPDOWN_SELECTOR,
+      options: [
+        [RayObject.OBJECT_TYPE_SPHERE, "OBJECT_TYPE_SPHERE"],
+        [RayObject.OBJECT_TYPE_CUBE, "OBJECT_TYPE_CUBE"],
+        [RayObject.OBJECT_TYPE_CONE, "OBJECT_TYPE_CONE"],
+        [RayObject.OBJECT_TYPE_TORUS, "OBJECT_TYPE_TORUS"],
+        [RayObject.OBJECT_TYPE_CYLINDER, "OBJECT_TYPE_CYLINDER"],
+        [RayObject.OBJECT_TYPE_PLANE, "OBJECT_TYPE_PLANE"],
+        [RayObject.OBJECT_TYPE_RECT, "OBJECT_TYPE_RECT"],
+        [RayObject.OBJECT_TYPE_INVERTED_SPHERE, "OBJECT_TYPE_INVERTED_SPHERE"],
+        [RayObject.OBJECT_TYPE_INVERTED_CUBE, "OBJECT_TYPE_INVERTED_CUBE"],
+        [RayObject.OBJECT_TYPE_INVERTED_CONE, "OBJECT_TYPE_INVERTED_CONE"],
+        [RayObject.OBJECT_TYPE_INVERTED_TORUS, "OBJECT_TYPE_INVERTED_TORUS"],
+        [
+          RayObject.OBJECT_TYPE_INVERTED_CYLINDER,
+          "OBJECT_TYPE_INVERTED_CYLINDER",
+        ],
+        [RayObject.OBJECT_TYPE_INVERTED_PLANE, "OBJECT_TYPE_INVERTED_PLANE"],
+        [RayObject.OBJECT_TYPE_INVERTED_RECT, "OBJECT_TYPE_INVERTED_RECT"],
+      ],
+      cast: Number,
+    },
+    { name: "programLabel", type: TYPE_PROGRAM_SELECTOR },
+    { name: "materialLabel", type: TYPE_MATERIAL_SELECTOR },
+    { name: "uvBounds", type: TYPE_XTUPLE_SELECTOR },
+    "uvScale",
+    { name: "lightingCenter", type: TYPE_3TUPLE_SELECTOR },
+    "lightingRadius",
+    "materialIndex",
+    "shouldDraw",
+    "light",
+    "lightPower",
+    "radius",
+    "halfSize",
+    "height",
+    "width",
+    "depth",
+    "radiusMinor",
+    "bulge",
+    "faces",
+    "castShadow",
+  ];
+
+  /**
+   * Make a new RayObject, a scene object meant to run in the
+   * hw7 based ray tracing fragment. Note that this object type is unique and does
+   * not rely on a mesh like all of our previous setup, it relies on the shader
+   * to construct the information at runtime. This also means that
+   * things like texture uvs, tangents etc will also have to be constructed at
+   * runtime.
+   *
+   * NOTE: Although a mesh should be usable in a ray tracer like this, consider checking the
+   * reflection for a triangle and just representing the reflection of a mesh as a triangle
+   * lookup then triangle reflection.
+   *
+   * NOTE: it could be reasonable to have all interaction with this type of object within
+   * the shader itself, but I like the structure of using shader as renderer and js as
+   * the logical control in webgl so I'll maintain that for now
+   *
+   * NOTE: js doesn't have multi class inheritance baked in so will be annoying to transfer the
+   * tiny changes in the physics object class for example. Can do something messy to accomplish it
+   * though..
+   *
+   * @param {string} label
+   * @param {number} type                           the type of object to render in the ray traced scene
+   * @param {*} options
+   * @param {SceneObject} options.parent            the parent of this object (can be set through addChild instead)
+   * @param {number[]} options.position             initial three tuple [x,y,z] position of the object
+   * @param {number[]} options.rotation             initial three tuple [x,y,z] rotation of the object
+   * @param {number[]} options.scale                initial three tuple [x,y,z] scale of the object
+   * @param {number[]} options.center               three tuple [x,y,z] the center of the object (rotates around this)
+   * @param {boolean} options.shouldDraw            if this object should be drawn
+   * @param {string} options.programLabel           the program to draw this object with
+   * @param {string} options.materialLabel          the material to use with this object
+   * @param {string} options.child                  if the object is a child
+   * @param {string} options.passes                 the renderpasses to render this object with
+   * @param {string} options.lightingCenter         the center of the object to calculate light culling with
+   * @param {string} options.lightingRadius         the radius of the object to use when calculate light culling
+   * @param {number} [options.materialIndex=-1]
+   * @param {number} [options.uvBounds=[0,0,1,1]]
+   * @param {number} [options.uvScale=1]
+   * @param {number} [options.radius=undefined]     the radius used for sphere, cylinder, torus(R), and cone
+   * @param {number} [options.halfSize=undefined]   the size used for cubes
+   * @param {number} [options.height=undefined]     the height used for cylinders, cones
+   * @param {number} [options.width=undefined]      the width of a plane (-val is inf)
+   * @param {number} [options.depth=undefined]      the depth of a plane (-val is inf)
+   * @param {number} [options.radiusMinor=undefined]  the radius of the tube of a torus
+   * @param {number} [options.bulge=undefined]      the bulge ratio of a cylinder
+   * @param {number} [options.faces=0]              how many faces the faceted object has (if 0 we say not faceted)...
+   * @param {boolean} [options.light=false]         if the object is a light or not
+   * @param {number} [options.lightPower=0]         the power of the object if its a light
+   * @param {boolean} [options.castShadow=true]     if the object should cast a shadow
+   */
+  constructor(
+    label,
+    type,
+    {
+      // basic scene object options
+      parent = undefined,
+      position = [0, 0, 0],
+      rotation = [0, 0, 0],
+      scale = [1, 1, 1],
+      center = [0, 0, 0],
+      shouldDraw = true,
+      programLabel = undefined,
+      materialLabel = undefined,
+      child = false,
+      passes = undefined,
+      lightingCenter = [0, 0, 0],
+      lightingRadius = 1,
+
+      // ray object metadata
+      light = false,
+      lightPower = 0.5,
+      materialIndex = -1,
+      uvBounds = [0, 0, 1, 1],
+      uvScale = 1,
+
+      // ray object geometry
+      radius = undefined,
+      halfSize = undefined,
+      height = undefined,
+      width = undefined,
+      depth = undefined,
+      radiusMinor = undefined,
+      bulge = undefined,
+      faces = 5,
+      castShadow = true,
+    } = {},
+  ) {
+    super(label, {
+      parent,
+      position,
+      rotation,
+      scale,
+      shouldDraw,
+      programLabel,
+      materialLabel,
+      lightingCenter,
+      lightingRadius,
+      child,
+      passes,
+    });
+
+    this.center = center;
+
+    // TODO update this based on the label if it exists
+    this.materialIndex = materialIndex;
+    this.light = light;
+    this.lightPower = lightPower;
+    this.castShadow = castShadow;
+
+    this.radius = radius;
+    this.halfSize = halfSize;
+    this.height = height;
+    this.width = width;
+    this.depth = depth;
+    this.radiusMinor = radiusMinor;
+    this.bulge = bulge;
+    this.faces = faces;
+    this.uvBounds = uvBounds;
+    this.uvScale = uvScale;
+
+    this.type = type;
+  }
+
+  /**
+   * roughly calculate the hit radius of the object
+   * @returns
+   */
+  getRadius() {
+    let radius;
+    switch (this.type) {
+      case RayObject.OBJECT_TYPE_SPHERE:
+      case RayObject.OBJECT_TYPE_INVERTED_SPHERE:
+        radius = this.radius;
+        break;
+      case RayObject.OBJECT_TYPE_CUBE:
+      case RayObject.OBJECT_TYPE_INVERTED_CUBE:
+        // (sqrt 2)
+        radius = this.halfSize * 1.414213 * 1.5;
+        break;
+      case RayObject.OBJECT_TYPE_CONE:
+      case RayObject.OBJECT_TYPE_INVERTED_CONE:
+        radius = Math.max(this.radius, this.height);
+        break;
+      case RayObject.OBJECT_TYPE_TORUS:
+      case RayObject.OBJECT_TYPE_INVERTED_TORUS:
+        radius = this.radius + this.radiusMinor;
+        break;
+      case RayObject.OBJECT_TYPE_CYLINDER:
+      case RayObject.OBJECT_TYPE_INVERTED_CYLINDER:
+        radius = Math.max(this.radius, this.height);
+        break;
+      case RayObject.OBJECT_TYPE_PLANE:
+      case RayObject.OBJECT_TYPE_INVERTED_PLANE:
+        if (this.width < 0 || this.depth < 0) {
+          radius = 100;
+        } else {
+          // (sqrt 2)
+          radius = Math.max(this.width, this.depth) * 1.414213 * 1.5;
+        }
+      case RayObject.OBJECT_TYPE_RECT:
+      case RayObject.OBJECT_TYPE_INVERTED_RECT:
+        radius = Math.max(this.width, this.depth, this.height) * 1.414213;
+    }
+    return radius * Math.max(...this.scale);
+  }
+
+  /**
+   * Check if the object is only being transformed so we can avoid using the mat4 transform
+   * to move ray into object space and normal into world space, and instead use the js calculated center
+   */
+  isTranslateOnly() {
+    return (
+      this.rotation[0] == 0 &&
+      this.rotation[1] == 0 &&
+      this.rotation[2] == 0 &&
+      this.scale[0] == 1 &&
+      this.scale[1] == 1 &&
+      this.scale[2] == 1
+    );
+  }
+
+  /**
+   * Pack the data into a predefined structure i can pass down to the
+   * shader to render
+   *
+   * <pre>
+   *  struct Object {
+   *     ivec4 meta;         // x    => type;    y => material?; z=> ____ ; w => ____ ;
+   *     vec4 centerRadius;  // xyz  => center;  w => cone, sphere, cyl: r, cube: half-size, torus: R, plane: width
+   *     vec4 options;       // x    => cyl, cone: height, torus:r, plane:depth;     y=> cyl: bulge
+   *     vec4 testCenterRadius;
+   *   };
+   * </pre>
+   *
+   * TODO can probably cache this to not recomput every time
+   * maybe a dirty attribute on it or smth
+   *
+   * @param {DataView} view the view we want to pack the object into
+   * @param {int} offset offset bytes this object starts at
+   */
+  packData(view, offset) {
+    let mat = this.M;
+
+    if (!this.M || mat.length != 16) {
+      console.warn(
+        `RayObject ${this.label}: this.M must be defined as a 16 element array; defaulting to identity`,
+      );
+      mat = mat4Identity();
+    }
+
+    // ivec4 meta (offset 0)
+    view.setInt32(0 + offset, this.type, true);
+    view.setInt32(4 + offset, this.materialIndex, true);
+    view.setInt32(
+      8 + offset,
+      this.castShadow ? this.faces : -1 * this.faces,
+      true,
+    );
+    view.setInt32(12 + offset, this.isTranslateOnly() ? 1 : 0, true);
+
+    // vec4 centerRadius (offset 16)
+    let size = 0;
+    switch (this.type) {
+      case RayObject.OBJECT_TYPE_SPHERE:
+      case RayObject.OBJECT_TYPE_INVERTED_SPHERE:
+      case RayObject.OBJECT_TYPE_CONE:
+      case RayObject.OBJECT_TYPE_INVERTED_CONE:
+      case RayObject.OBJECT_TYPE_CYLINDER:
+      case RayObject.OBJECT_TYPE_INVERTED_CYLINDER:
+      case RayObject.OBJECT_TYPE_TORUS:
+      case RayObject.OBJECT_TYPE_INVERTED_TORUS:
+        size = this.radius;
+        break;
+      case RayObject.OBJECT_TYPE_CUBE:
+      case RayObject.OBJECT_TYPE_INVERTED_CUBE:
+        size = this.halfSize;
+        break;
+      case RayObject.OBJECT_TYPE_PLANE:
+      case RayObject.OBJECT_TYPE_INVERTED_PLANE:
+      case RayObject.OBJECT_TYPE_RECT:
+      case RayObject.OBJECT_TYPE_INVERTED_RECT:
+        size = this.width;
+        break;
+      default:
+        throw new Error("RayObject: unknown type:", this.type);
+    }
+
+    // NOTE: this.M should already contain the position transform
+    //       but we ignore it for now since its not parsed in
+    //       the fragment shader
+    view.setFloat32(16 + offset, this.center[0], true);
+    view.setFloat32(20 + offset, this.center[1], true);
+    view.setFloat32(24 + offset, this.center[2], true);
+    view.setFloat32(28 + offset, size, true);
+
+    // vec4 options (offset 32)
+    let options = { x: 0, y: 0, z: 0, w: 0 };
+    switch (this.type) {
+      case RayObject.OBJECT_TYPE_CYLINDER:
+      case RayObject.OBJECT_TYPE_INVERTED_CYLINDER:
+        options.y = this.bulge ?? 0;
+      case RayObject.OBJECT_TYPE_CONE:
+      case RayObject.OBJECT_TYPE_INVERTED_CONE:
+        options.x = this.height ?? 1;
+        break;
+      case RayObject.OBJECT_TYPE_TORUS:
+      case RayObject.OBJECT_TYPE_INVERTED_TORUS:
+        options.x = this.radiusMinor ?? 0.25;
+        break;
+      case RayObject.OBJECT_TYPE_RECT:
+      case RayObject.OBJECT_TYPE_INVERTED_RECT:
+        options.y = this.height ?? 0;
+      case RayObject.OBJECT_TYPE_PLANE:
+      case RayObject.OBJECT_TYPE_INVERTED_PLANE:
+        options.x = this.depth ?? 0;
+        break;
+    }
+
+    if (this.light) {
+      options.w = this.lightPower;
+    } else {
+      options.w = this.uvScale;
+    }
+
+    view.setFloat32(32 + offset, options.x, true);
+    view.setFloat32(36 + offset, options.y, true);
+    view.setFloat32(40 + offset, options.z, true);
+    view.setFloat32(44 + offset, options.w, true);
+
+    const worldCenter = transformPoint(this.center, mat);
+
+    view.setFloat32(48 + offset, worldCenter[0], true);
+    view.setFloat32(52 + offset, worldCenter[1], true);
+    view.setFloat32(56 + offset, worldCenter[2], true);
+    view.setFloat32(60 + offset, this.getRadius(), true);
+
+    for (let i = 0; i < 4; i++) {
+      view.setFloat32(64 + i * 4 + offset, this.uvBounds[i], true);
+    }
+  }
+
+  /**
+   *
+   * @param {*} view
+   * @param {*} offset
+   */
+  packTransformData(view, offset) {
+    let mat = this.M;
+
+    if (!this.M || mat.length != 16) {
+      console.warn(
+        `RayObject ${this.label}: this.M must be defined as a 16 element array; defaulting to identity`,
+      );
+      mat = mat4Identity();
+    }
+
+    const inverse = mat4Inverse(mat);
+    const inverse3 = mat3Transpose(mat4ToMat3(inverse));
+
+    // mat4 inverse (offset 0 -> 64)
+    for (let i = 0; i < 16; i++) {
+      view.setFloat32(i * 4 + offset, inverse[i], true);
+    }
+
+    for (let col = 0; col < 3; col++) {
+      for (let row = 0; row < 3; row++) {
+        view.setFloat32(
+          offset + 64 + col * 16 + row * 4,
+          inverse3[col * 3 + row],
+          true,
+        );
+      }
+      view.setFloat32(offset + 64 + col * 16 + 12, 0, true); // padding
+    }
+  }
+
+  loadBuffers() {
+    // no buffers here
+  }
+
+  bindBuffers() {
+    // no buffers here
+  }
+
+  cleanBuffers() {
+    // no buffers here
+  }
+
+  setUniforms() {
+    // no per object uniforms
+  }
+
+  draw() {
+    // drawing op directly happens in the shader
+  }
+
+  // NOTE: otherwise we use setUpdateCB, updateWorldMatrix, update
+  // the same as normal objects
+}

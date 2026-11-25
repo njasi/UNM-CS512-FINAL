@@ -1,0 +1,276 @@
+/**
+ * @module objects/compositions
+ * @description "Compositions" are just objects made of multiple primitives. A couple
+ * are defined here for convience, but it may make more sense to define this type
+ * of object per project in its own file
+ *
+ * - TODO update to handle texture coords
+ */
+
+import {
+  mat4Identity,
+  mat4RotateX,
+  mat4RotateY,
+  mat4Translate,
+  matMul,
+  transformPrimitive,
+  transformVertices,
+} from "../util/transformations";
+import { rgba } from "../util/color";
+import PrimitiveObject from "./PrimitiveObject";
+import {
+  generateCylinder,
+  generateFillerColors,
+  generateSphere,
+  generateTorus,
+} from "./primitives";
+
+/**
+ * Combine vert, ind, normal, color lists together
+ * 
+ * @param {Float32Array} verts 
+ * @param {Uint16Array} inds 
+ * @param {Float32Array} normals 
+ * @param {Float32Array} colors 
+ * @returns {number[][]}
+ */
+export function combineParts(verts, inds, normals, colors = undefined) {
+  const resultVerts = [];
+  const resultInds = [];
+  const resultColors = [];
+  const resultNorms = [];
+
+  for (let i = 0; i < verts.length; i++) {
+    resultInds.push(...inds[i].map((ind) => ind + resultVerts.length / 4));
+    resultVerts.push(...verts[i]);
+    resultNorms.push(...normals[i]);
+    if (!!colors) {
+      // if the prim already had color array we should use it
+      if (!!colors[i] && Array.isArray(colors[i]) && colors[i].length > 4) {
+        resultColors.push(...colors[i]);
+        continue;
+      }
+      resultColors.push(
+        ...generateFillerColors(verts[i].length / 4, colors[i]),
+      );
+    }
+  }
+
+  return [resultVerts, resultInds, resultNorms, resultColors];
+}
+
+/**
+ * Higher level of combine, take the primitive dicts so can be cleaner
+ *
+ * if colors or colors[i] is undefined try to use color in prim[i]
+ *
+ * @param {PrimitiveObject[]} prims list of primitives to combine
+ * @param {Number[][]} colors colors to use for each primitive
+ * @returns {PrimitiveObject}
+ */
+export function combine(prims, colors) {
+  const verts = [];
+  const norms = [];
+  const inds = [];
+  const cols = [];
+
+  for (let i = 0; i < prims.length; i++) {
+    verts.push(prims[i].vertices);
+    inds.push(prims[i].indices);
+    norms.push(prims[i].normals);
+    cols.push(!colors || !colors[i] ? prims[i].colors : colors[i]);
+  }
+
+  const [v, i, n, c] = combineParts(verts, inds, norms, cols);
+
+  return new PrimitiveObject(v, {
+    indices: i,
+    colors: c,
+    normals: n,
+    vertexCount: v.length / 4,
+  });
+}
+
+/**
+ * Generate a Parametric (kinda) Barrel
+ * one cylinder as main body
+ *  - the barrel body should be low to get the
+ *    look of individual staves for free
+ * 4 cylinders for the binding rings
+ *
+ * @param {number} segments how many points to sample
+ * @param {number} r  the radius of the barrel
+ * @param {number} h  the height of the barrel
+ * @param {number} x_c  x center of the barrel
+ * @param {number} y_c  y center of the barrel
+ * @param {number} z_c  z center of the barrel
+ * @param {number} bulge  amount the barrel bulges
+ * @returns {PrimitiveObject}
+ */
+export function generateBarrel(
+  segments,
+  r,
+  h,
+  x_c,
+  y_c,
+  z_c,
+  bulge = 0.4,
+  staves = 10,
+) {
+  let body = generateCylinder(staves, r, h, {
+    x_c,
+    y_c,
+    z_c,
+    bulge,
+    segments_h: segments,
+  });
+  body.colors = generateFillerColors(
+    body.vertexCount,
+    rgba(150, 111, 51, 1),
+    true,
+  );
+
+  const bracePositions = [-0.449, -0.2, 0.2, 0.449];
+
+  for (let i = 0; i < bracePositions.length; i++) {
+    const brace_z = z_c + bracePositions[i] * h;
+    const brace_r_angle = Math.PI * (bracePositions[i] + 0.5);
+
+    const brace = generateCylinder(
+      staves,
+      r + r * (bulge + 0.07) * Math.sin(brace_r_angle),
+      0.1 * h,
+      {
+        x_c,
+        y_c,
+        z_c: brace_z,
+      },
+    );
+
+    body = combine([body, brace], [undefined, rgba(51, 51, 51, 1)]);
+  }
+
+  return body;
+}
+
+/**
+ * Generate a spoked wheel
+ * @param {Number} segments the number of sampling divisions to use
+ * @param {Number} R the large overall radius of the wheel
+ * @param {Number} r the small radius of the wheel
+ * @param {Number} spokeCount the amount of spokes to put on the wheel
+ * @param {Number} x_c the x coord of the center of the object
+ * @param {Number} y_c the y coord of the center of the object
+ * @param {Number} z_c the z coord of the center of the object
+ * @returns {PrimitiveObject}
+ */
+export function generateWheel(segments, R, r, spokeCount, x_c, y_c, z_c) {
+  const rim = generateTorus(segments, R, r, x_c, y_c, z_c);
+
+  let spokes = {
+    vertices: [],
+    indices: [],
+    normals: [],
+  };
+
+  for (let i = 0; i < spokeCount; i++) {
+    // TODO wtf is goin on here with the transformations
+    // why does setting z_c make the cylinders fly in every direction
+    let spoketmp = generateCylinder(segments, r / 2, R * 2, {
+      x_c: -z_c,
+      y_c,
+      solid: false,
+    });
+
+    // rotate the spoke
+    const id = mat4Identity();
+    const ry = mat4RotateY(id, Math.PI / 2);
+    const rx = mat4RotateX(id, (Math.PI * i) / spokeCount);
+
+    const M = matMul(ry, rx);
+    spoketmp = transformPrimitive(spoketmp, M);
+
+    spokes = combine([spokes, spoketmp]);
+  }
+
+  const wheel = combine([rim, spokes]);
+  return wheel;
+}
+
+/**
+ * Generate a cannon object
+ * 
+ * @param {number} barrelLength 
+ * @returns {PrimitiveObject}
+ */
+export function generateCannon(barrelLength = 3) {
+  // generate all the individual parts
+  const shaft = generateCylinder(20, 1, barrelLength, {
+    z_c: -barrelLength / 2,
+  });
+  const end = generateSphere(20, 1, 0, 0, 0);
+  let fuseHolder = generateCylinder(16, 0.2, 0.2);
+  let fuse = generateCylinder(10, 0.1, 0.4);
+  let axel = generateCylinder(16, 0.15, 2.5);
+  const wheel1 = generateWheel(40, 1.15, 0.15, 4, 0, 0, -1.15);
+  const wheel2 = generateWheel(40, 1.15, 0.15, 4, 0, 0, 1.15);
+
+  let wheels = combine([wheel1, wheel2]);
+
+  // transformations to place the parts
+  const id = mat4Identity();
+  const wheelRot = mat4RotateY(id, Math.PI / 2);
+
+  const fuseRot = mat4RotateX(id, Math.PI / 2);
+  const fuseTrans = mat4Translate(id, [0, 1, 0]);
+  const fuseM = matMul(fuseTrans, fuseRot);
+
+  fuse = transformPrimitive(fuse, fuseM);
+  fuseHolder = transformPrimitive(fuseHolder, fuseM);
+  wheels = transformPrimitive(wheels, wheelRot);
+  axel = transformPrimitive(axel, wheelRot);
+
+  // combine the things all together now
+  const cannon = combine(
+    [shaft, end, axel, fuse, fuseHolder, wheels],
+    [
+      rgba(34, 34, 34, 1),
+      rgba(34, 34, 34, 1),
+      rgba(34, 34, 34, 1),
+      rgba(150, 111, 51, 1),
+      rgba(124, 124, 124, 1),
+      rgba(150, 111, 51, 1),
+    ],
+  );
+
+  return cannon;
+}
+
+/**
+ * Generate a simple bomb
+ * @param {number} r 
+ * @returns {PrimitiveObject}
+ */
+export function generateBomb(r) {
+  const body = generateSphere(20, r, 0, 0, 0);
+  let fuseHolder = generateCylinder(16, r / 5, r / 5);
+  let fuse = generateCylinder(10, r / 10, r / 2.5);
+
+  // transformations to place the parts
+  const id = mat4Identity();
+
+  const fuseRot = mat4RotateX(id, Math.PI / 2);
+  const fuseTrans = mat4Translate(id, [0, r, 0]);
+  const fuseM = matMul(fuseTrans, fuseRot);
+
+  fuse = transformPrimitive(fuse, fuseM);
+  fuseHolder = transformPrimitive(fuseHolder, fuseM);
+
+  // combine the things all together now
+  const bomb = combine(
+    [body, fuse, fuseHolder],
+    [rgba(34, 34, 34, 1), rgba(150, 111, 51, 1), rgba(124, 124, 124, 1)],
+  );
+
+  return bomb;
+}

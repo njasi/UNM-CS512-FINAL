@@ -1,0 +1,26 @@
+{
+  "name": "unm-cs-512-final",
+  "version": "1.0.0",
+  "description": "The final project is a team project that requires you to demonstrate and utilize the techniques covered in this course. Each team must consist of at least 4 students (4-6) from the class. It is highly recommended to team up with students in the same course section (CS 412 students with CS 412 students, and CS 512 students with CS 512 students). This makes grading more consistent, since CS 512 projects are held to higher expectations. You might want to form your teams as early as possible to ensure sufficient time for collaboration and development.  Team Formation and Presentation Slot (3 pts)",
+  "main": "index.js",
+  "scripts": {
+    "start": "webpack serve",
+    "build": "webpack --mode production",
+    "report":"latexmk -jobname=report/report -pdf ./report/report.tex; npm run clean",
+    "clean":"latexmk -jobname=report/report -c ./report/report.tex"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "terser-webpack-plugin": "^5.6.1",
+    "webpack": "^5.111.1",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^6.1.0"
+  },
+  "directories": {
+    "test": "test"
+  },
+  "dependencies": {
+    "PotatoEngine": "file:PotatoEngine"
+  }
+}

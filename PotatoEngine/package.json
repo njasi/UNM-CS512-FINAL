@@ -1,0 +1,27 @@
+{
+  "name": "PotatoEngine",
+  "version": "1.0.0",
+  "description": "Simple WebGL engine developed during UNM CS512 hw3-hw4",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "webpack serve",
+    "build": "webpack --mode production",
+    "docs":"./node_modules/.bin/jsdoc ./src/index.js -d docs -c jsdoc.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/njasi/UNM-CS512-PotatoEngine.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/njasi/UNM-CS512-PotatoEngine/issues"
+  },
+  "homepage": "https://github.com/njasi/UNM-CS512-PotatoEngine#readme",
+  "devDependencies": {
+    "jsdoc": "^4.0.5",
+    "webpack": "^5.111.1",
+    "webpack-cli": "^7.2.3",
+    "webpack-dev-server": "^6.0.0"
+  }
+}

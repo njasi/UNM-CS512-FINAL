@@ -1,0 +1,33 @@
+import SceneObject from "../SceneObject";
+
+/**
+ * TODO make a cursed particle system
+ * - need ability to delete objects from the scene
+ * - need the ability to add objects to the scene
+ * 
+ * Basically the idea is going to be making a particle object
+ * a particle emitter and hijack the animation call to generate children objects
+ * that are the "particles". so for smoke a particle object
+ * could generate a sphere every timestep or so that is gray and moves upward
+ * 
+ * might be more reasonable to tack on an emmiter type to the scene but we dont really
+ * need to do that...
+ * 
+ * Probably better to define this fully in webgl, seems like something the gpu would
+ * be specialized for...
+ */
+export default class ParticleEmitter extends SceneObject{
+    constructor(){
+
+    }
+
+    draw(gl){
+        // NOTE: particle emitters should not draw themselves...
+    }
+
+    update(){
+        // TODO
+        // - spawn in children particles
+        // - kill them when they arent needed anymore
+    }
+}
