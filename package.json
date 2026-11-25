@@ -6,8 +6,10 @@
   "scripts": {
     "start": "webpack serve",
     "build": "webpack --mode production",
-    "report":"latexmk -jobname=report/report -pdf ./report/report.tex; npm run clean",
-    "clean":"latexmk -jobname=report/report -c ./report/report.tex"
+    "report": "latexmk -jobname=report/report -pdf ./report/report.tex; npm run clean",
+    "clean": "latexmk -jobname=report/report -c ./report/report.tex",
+    "preinstall": "git submodule update  --remote; npm install ./PotatoEngine",
+    "reset-submodule": "git submodule deinit -f PotatoEngine; rm -rf .git/modules/PotatoEngine; git rm -rf PotatoEngine; git submodule add https://github.com/njasi/UNM-CS512-PotatoEngine.git PotatoEngine"
   },
   "author": "",
   "license": "ISC",
