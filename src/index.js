@@ -5,9 +5,8 @@ const {
   syncProperties,
 } = require("PotatoEngine/src/controls/sceneEditor");
 const {
-  addRayTracingRenderPass,
-  ProceduralMaterialRenderPass,
-  RENDER_PASS_RAY,
+  RayRenderPass,
+  ProceduralMaterialRenderPass
 } = require("PotatoEngine/src/renderers");
 
 const { addMaterials } = require("./setup/materials");
@@ -22,7 +21,7 @@ scene.camera.speed = 20;
 scene.camera.move(-25, -1, -22);
 scene.camera.yaw = 0.8;
 scene.camera.pitch = 0.1;
-scene.defaultPasses = [RENDER_PASS_RAY]
+scene.defaultPasses = [RayRenderPass.RENDER_PASS_RAY]
 
 flight.setupMouseControls(scene, {
   scalePitch: 1,
@@ -49,7 +48,7 @@ scene.setUpdateCB(updateScene);
  */
 async function main() {
   addPrograms(scene);
-  addRayTracingRenderPass(scene, SHADER_PROGRAM_RAY);
+  RayRenderPass.add(scene, SHADER_PROGRAM_RAY);
   addMaterials(scene);
   addTextures(scene);
   // ProceduralMaterialRenderPass.add(scene, {
