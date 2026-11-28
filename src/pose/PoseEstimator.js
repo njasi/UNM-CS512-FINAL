@@ -17,7 +17,6 @@ export const MODELS = {
     BlazePose: MP,
     MoveNet: MP,
     PoseNet: MP,
-    "RF-DETR": TJS,
     ViTPose: TJS
 }
 
@@ -36,9 +35,6 @@ const MODEL_CONFIGS = {
     },
     ViTPose: {
         source: "onnx-community/vitpose-base-simple"
-    },
-    "RF-DETR": {
-        source: "onnx-community/rfdetr_base-ONNX"
     }
 }
 
