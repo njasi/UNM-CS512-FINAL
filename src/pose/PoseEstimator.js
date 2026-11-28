@@ -81,6 +81,7 @@ export class PoseEstimator {
                 try {
                     await this.estimator.dispose()
                     delete this.estimator
+                    delete this.processor
                     delete this.edges
                     this.#loaded = false
                 } catch (err) {
@@ -115,18 +116,21 @@ export class PoseEstimator {
                     { device: "webgpu" }
                 )
                 this.estimator.estimatePoses = async (canvas) => {
-                    let boxes = [[[0, 0, canvas.width, canvas.height]]]
-                    let raw_image = await RawImage.read(canvas)
-                    let processed_image = await this.processor(raw_image, {
-                        boxes
-                    })
-                    let { heatmaps } = await this.estimator(processed_image)
-                    let pose =
-                        await this.processor.post_process_pose_estimation(
+                    try {
+                        let boxes = [[[0, 0, canvas.width, canvas.height]]]
+                        let raw_image = await RawImage.read(canvas)
+                        let processed_image = await this.processor(raw_image, {
+                            boxes
+                        })
+                        let { heatmaps } = await this.estimator(processed_image)
+                        let pose = this.processor.post_process_pose_estimation(
                             heatmaps,
                             boxes
-                        )[0][0]
-                    return pose
+                        )
+                        return pose[0][0]
+                    } catch (err) {
+                        console.log(err)
+                    }
                 }
             }
             this.#modelName = modelName
